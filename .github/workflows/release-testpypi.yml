@@ -1,0 +1,42 @@
+name: Release (TestPyPI)
+
+# Manual rehearsal release to TestPyPI via Trusted Publishing (OIDC) — no tokens.
+# One-time setup on TestPyPI: https://test.pypi.org/manage/account/publishing/
+#   Project: suuid  |  Owner: lepy  |  Repo: suuid
+#   Workflow: release-testpypi.yml  |  Environment: testpypi
+# Trigger manually from the Actions tab ("Run workflow").
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Check metadata
+        run: uvx twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-testpypi
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write        # required for Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-testpypi
+          path: dist/
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
