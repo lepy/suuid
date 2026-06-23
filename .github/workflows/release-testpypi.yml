@@ -13,14 +13,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
       - name: Build sdist + wheel
         run: uv build
       - name: Check metadata
         run: uvx twine check dist/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-testpypi
           path: dist/
@@ -32,7 +32,7 @@ jobs:
     permissions:
       id-token: write        # required for Trusted Publishing (OIDC)
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist-testpypi
           path: dist/
