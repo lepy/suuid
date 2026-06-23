@@ -99,6 +99,11 @@ uv run pytest
 uv run ruff check
 ```
 
+## Releasing
+
+Published to PyPI via Trusted Publishing on GitHub Release — see
+[RELEASING.md](RELEASING.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
