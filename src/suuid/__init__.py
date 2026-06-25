@@ -29,6 +29,7 @@ from suuid.core import (
     SUUID,
     content_huuid,
     name_deterministic_huuid,
+    namespace_from_name,
 )
 
 __version__ = "0.1.0"
@@ -39,6 +40,7 @@ __all__ = [
     "clean_class_name",
     "name_deterministic_huuid",
     "content_huuid",
+    "namespace_from_name",
     "SEP",
     "MAX_SNAME_LEN",
     "OID_NAMESPACE",

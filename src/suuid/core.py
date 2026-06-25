@@ -80,6 +80,25 @@ def content_huuid(content: bytes,
     return uuid.uuid5(ns, digest).hex, digest
 
 
+def namespace_from_name(name: str, base: uuid.UUID = OID_NAMESPACE) -> uuid.UUID:
+    """Derive a stable namespace UUID from a string (e.g. a parent/project sname).
+
+    ``uuid5(base, name.upper())`` — the same string yields the same namespace on
+    every run and machine. This lets callers *scope* name-deterministic ids to a
+    parent (pass the parent's ``sname`` as the namespace) without managing
+    :class:`uuid.UUID` objects by hand. Part of the reproducibility contract.
+    """
+    return uuid.uuid5(base, str(name).upper())
+
+
+def _resolve_ns(ns: str | uuid.UUID) -> uuid.UUID:
+    """Accept a namespace as a :class:`uuid.UUID` or a string.
+
+    A string is resolved to a namespace UUID via :func:`namespace_from_name`.
+    """
+    return ns if isinstance(ns, uuid.UUID) else namespace_from_name(ns)
+
+
 @dataclass(frozen=True, slots=True)
 class SUUID:
     """An immutable semantic UUID.
@@ -114,36 +133,44 @@ class SUUID:
 
     @classmethod
     def from_name(cls, class_name: str, name: str = "",
-                  ns: uuid.UUID = OID_NAMESPACE) -> SUUID:
-        """Name-deterministic SUUID: same ``(class_name, name)`` ⇒ same id."""
+                  ns: str | uuid.UUID = OID_NAMESPACE) -> SUUID:
+        """Name-deterministic SUUID: same ``(class_name, name)`` ⇒ same id.
+
+        ``ns`` may be a :class:`uuid.UUID` *or* a string. A string is resolved to
+        a namespace via :func:`namespace_from_name`, so passing a parent's
+        ``sname`` scopes the id to that parent (hierarchical, still reproducible).
+        """
+        ns_uuid = _resolve_ns(ns)
         cn = clean_class_name(class_name)
         sn = safe_name(name)
         return cls(
             class_name=cn, name=sn,
-            huuid=name_deterministic_huuid(cn, name, ns),
-            mode="name", namespace=str(ns),
+            huuid=name_deterministic_huuid(cn, name, ns_uuid),
+            mode="name", namespace=str(ns_uuid),
         )
 
     @classmethod
     def from_content(cls, class_name: str, name: str, content: bytes,
-                     ns: uuid.UUID = OID_NAMESPACE) -> SUUID:
+                     ns: str | uuid.UUID = OID_NAMESPACE) -> SUUID:
         """Content-deterministic SUUID: same ``content`` bytes ⇒ same id.
 
         ``name`` stays a human-readable ``safe_name``; only ``huuid`` is derived
-        from the content hash.
+        from the content hash. ``ns`` accepts a :class:`uuid.UUID` or a string
+        (see :meth:`from_name`).
         """
         if not isinstance(content, (bytes, bytearray)):
             raise TypeError("content must be bytes")
-        huuid, digest = content_huuid(bytes(content), ns)
+        ns_uuid = _resolve_ns(ns)
+        huuid, digest = content_huuid(bytes(content), ns_uuid)
         return cls(
             class_name=clean_class_name(class_name), name=safe_name(name),
-            huuid=huuid, mode="content", namespace=str(ns),
+            huuid=huuid, mode="content", namespace=str(ns_uuid),
             content_hash=digest, hash_algorithm=CONTENT_ALGO,
         )
 
     @classmethod
     def from_file(cls, class_name: str, filepath: str | os.PathLike[str],
-                  ns: uuid.UUID = OID_NAMESPACE) -> SUUID:
+                  ns: str | uuid.UUID = OID_NAMESPACE) -> SUUID:
         """Content-deterministic SUUID from a file's bytes; ``name`` = basename."""
         with open(filepath, "rb") as fh:
             content = fh.read()
@@ -160,20 +187,29 @@ class SUUID:
         )
 
     @classmethod
-    def from_sname(cls, sname: str) -> SUUID:
+    def from_sname(cls, sname: str, strict: bool = True) -> SUUID | None:
         """Parse a 3-part ``sname`` (``class__safe__huuid``) back into a SUUID.
 
         Accepts the metadata sibling form too (a single trailing ``"_"``), so
         ``from_sname(sid.meta_name).sname == sid.sname``.
+
+        With ``strict=False`` an unparseable or invalid ``sname`` (wrong arity,
+        bad huuid, non-string, ``None``) yields ``None`` instead of raising —
+        useful for "is this a SUUID?" probes and best-effort coercion.
         """
-        s = sname[:-1] if sname.endswith(SEP[0]) and not sname.endswith(SEP) else sname
-        parts = s.split(SEP)
-        if len(parts) != 3:
-            raise ValueError(
-                f"sname must have exactly 3 '{SEP}'-separated parts, got {sname!r}"
-            )
-        class_name, name, huuid = parts
-        return cls(class_name=class_name, name=name, huuid=huuid)
+        try:
+            s = sname[:-1] if sname.endswith(SEP[0]) and not sname.endswith(SEP) else sname
+            parts = s.split(SEP)
+            if len(parts) != 3:
+                raise ValueError(
+                    f"sname must have exactly 3 '{SEP}'-separated parts, got {sname!r}"
+                )
+            class_name, name, huuid = parts
+            return cls(class_name=class_name, name=name, huuid=huuid)
+        except (ValueError, TypeError, AttributeError):
+            if strict:
+                raise
+            return None
 
     @classmethod
     def from_compact_token(cls, token: str) -> SUUID:
