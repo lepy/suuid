@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "suuid"
-version = "0.1.0"
+version = "0.2.0"
 description = "Semantic, filename- and S3-safe UUIDs: <Class>__<safe_name>__<huuid>"
 readme = "README.md"
 requires-python = ">=3.10"
