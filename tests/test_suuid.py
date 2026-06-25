@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import re
+import uuid
 
 import pytest
 
-from suuid import SUUID, safe_name
+from suuid import SUUID, namespace_from_name, safe_name
 from suuid.core import MAX_SNAME_LEN
 
 SNAME_RE = re.compile(
@@ -100,3 +101,72 @@ def test_meta_name_round_trips_to_data_sname() -> None:
 def test_huuid_validation() -> None:
     with pytest.raises(ValueError):
         SUUID(class_name="Data", name="x", huuid="not-hex")
+
+
+# --- string namespace (hierarchical, reproducible) ---------------------------
+
+def test_namespace_from_name_is_stable_and_case_folded() -> None:
+    assert isinstance(namespace_from_name("proj"), uuid.UUID)
+    assert namespace_from_name("proj") == namespace_from_name("proj")
+    assert namespace_from_name("proj") == namespace_from_name("PROJ")  # .upper() folded
+
+
+def test_string_namespace_scopes_ids() -> None:
+    default = SUUID.from_name("Data", "x")
+    scoped = SUUID.from_name("Data", "x", ns="project_alpha")
+    assert scoped.huuid != default.huuid                  # namespace changes the id
+    # reproducible: same string namespace -> same id, on every run
+    assert SUUID.from_name("Data", "x", ns="project_alpha") == scoped
+    # passing the equivalent UUID is identical to passing the string
+    ns_uuid = namespace_from_name("project_alpha")
+    assert SUUID.from_name("Data", "x", ns=ns_uuid) == scoped
+
+
+def test_default_namespace_unchanged() -> None:
+    # The default (UUID) path must stay byte-for-byte stable (golden contract).
+    assert SUUID.from_name("Data", "x").huuid == SUUID.from_name("Data", "x").huuid
+
+
+# --- lenient parsing ---------------------------------------------------------
+
+def test_from_sname_lenient_returns_none() -> None:
+    assert SUUID.from_sname("not a sname", strict=False) is None
+    assert SUUID.from_sname("only_two__parts", strict=False) is None
+    assert SUUID.from_sname("Data__x__not-hex", strict=False) is None
+    assert SUUID.from_sname(None, strict=False) is None  # type: ignore[arg-type]
+
+
+def test_from_sname_lenient_parses_valid() -> None:
+    sid = SUUID.from_name("Data", "messung.csv")
+    assert SUUID.from_sname(sid.sname, strict=False) == sid
+
+
+def test_from_sname_strict_is_default_and_raises() -> None:
+    with pytest.raises(ValueError):
+        SUUID.from_sname("only_two__parts")
+
+
+# --- 100% S3 / filename safety (hard contract) -------------------------------
+
+S3_SAFE_RE = re.compile(r"[A-Za-z0-9_]+")
+
+
+@pytest.mark.parametrize("class_name, name", [
+    ("Data", "Messung 2026.csv"),
+    ("Doc", "user@example.com"),
+    ("Über", "Größe @ Höhe!"),
+    ("MDK_CLN", "1.50mm ENAW5754"),
+    ("Run", "2026_starts_with_digit"),
+    ("Path", r"a/b\c:d*e?f|g"),
+    ("X", "  trailing & leading  "),
+])
+def test_sname_is_strictly_s3_safe(class_name: str, name: str) -> None:
+    s = SUUID.from_name(class_name, name).sname
+    assert S3_SAFE_RE.fullmatch(s), f"non-S3-safe char in {s!r}"  # only [A-Za-z0-9_]
+    assert not s.startswith("_"), f"leading underscore in {s!r}"  # e.g. no '_2026'
+    assert not s.endswith("_")
+    assert "@" not in s                                           # never '_at_' etc.
+    assert "___" not in s                                         # separator stays '__'
+    sid = SUUID.from_name(class_name, name)
+    assert len(sid.meta_name) <= 255
+    assert SUUID.from_sname(sid.sname) == sid                     # round-trips

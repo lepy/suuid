@@ -30,3 +30,10 @@ def test_golden_content_huuid() -> None:
     expected = uuid.uuid5(uuid.NAMESPACE_OID, digest).hex
     assert sid.content_hash == digest
     assert sid.huuid == expected
+
+
+def test_golden_string_namespace() -> None:
+    # String namespace: ns = uuid5(OID, ns.upper()); huuid = uuid5(ns, upper(class+name)).
+    ns = uuid.uuid5(uuid.NAMESPACE_OID, "PROJECT_ALPHA")
+    expected = uuid.uuid5(ns, "DATAX").hex
+    assert SUUID.from_name("Data", "x", ns="project_alpha").huuid == expected
